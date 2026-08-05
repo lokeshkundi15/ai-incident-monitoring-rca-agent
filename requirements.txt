@@ -1,0 +1,11 @@
+python-dotenv
+langchain-groq
+langchain-openai
+langgraph
+langchain-core
+fastmcp
+structlog
+fastapi
+uvicorn
+streamlit
+pandas

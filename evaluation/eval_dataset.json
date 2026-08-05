@@ -1,0 +1,29 @@
+[
+  {
+    "incident_id": "INC-001",
+    "scenario_name": "Database Connection Pool Exhaustion",
+    "target_service": "order-service",
+    "scenario_code": "A",
+    "expected_root_cause": "Database connection pool exhaustion due to QueuePool timeout and overflow",
+    "expected_evidence_keywords": ["QueuePool", "TimeoutError", "overflowed", "500"],
+    "simulated_manual_time_sec": 2400
+  },
+  {
+    "incident_id": "INC-002",
+    "scenario_name": "Unbounded Memory Leak & Heap OOM",
+    "target_service": "analytics-service",
+    "scenario_code": "B",
+    "expected_root_cause": "Java heap space OutOfMemoryError causing process kill by kernel OOM-killer",
+    "expected_evidence_keywords": ["OutOfMemoryError", "Java heap space", "OOM-killer", "Garbage Collection"],
+    "simulated_manual_time_sec": 1800
+  },
+  {
+    "incident_id": "INC-003",
+    "scenario_name": "Upstream Third-Party API Latency Cascade",
+    "target_service": "payment-service",
+    "scenario_code": "C",
+    "expected_root_cause": "Upstream Stripe API socket read timeout causing HTTP worker thread exhaustion",
+    "expected_evidence_keywords": ["ReadTimeout", "api.stripe.com", "timed out", "worker thread"],
+    "simulated_manual_time_sec": 2100
+  }
+]

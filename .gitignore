@@ -1,0 +1,22 @@
+# Environment variables (API Keys)
+.env
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environments
+venv/
+env/
+ENV/
+
+# Local Telemetry Data & Logs
+data/simulated/system_telemetry.db
+data/simulated/app_service.log
+logs/agent_execution.json
+
+# IDE Settings
+.vscode/
+.idea/
