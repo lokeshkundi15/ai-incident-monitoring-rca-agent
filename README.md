@@ -81,6 +81,7 @@ Evaluated against `evaluation/eval_dataset.json` across realistic incident scena
 # 1. Clone Repository
 git clone [https://github.com/lokeshkundi15/ai-incident-monitoring-rca-agent.git](https://github.com/lokeshkundi15/ai-incident-monitoring-rca-agent.git)
 cd ai-incident-monitoring-rca-agent
+Linkedin Profile : https://www.linkedin.com/in/lokesh-kundi-3a08b9318/
 
 # 2. Create Virtual Environment
 python -m venv venv
