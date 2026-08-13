@@ -2,6 +2,7 @@ import sys
 import os
 import time
 import asyncio
+import re
 
 # Add root directory to python path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -30,7 +31,6 @@ async def fetch_telemetry_node(state: IncidentState) -> IncidentState:
     start_time = time.time()
     print("\n[Node 2] Fetching Telemetry via Async FastMCP Tools...")
     
-    # Async execution of tools
     state["raw_logs"] = await get_recent_logs(limit=20)
     state["raw_metrics"] = await get_system_metrics()
     
@@ -61,13 +61,15 @@ async def analyze_root_cause_node(state: IncidentState) -> IncidentState:
     3. Recommend a specific mitigation/remediation command or action.
     
     FORMAT YOUR RESPONSE EXACTLY LIKE THIS:
-    ROOT CAUSE: <Explain root cause concisely with citation from logs/metrics>
+    ROOT CAUSE: <Explain root cause concisely using exact error technical phrases from logs/metrics>
     CONFIDENCE: <Float value between 0.0 and 1.0>
     RECOMMENDED ACTION: <Clear fix command or step>
     """
     
-    # Use resilient LLM call with retry, timeout, and fallback handling
-    analysis_text = await invoke_llm_with_retry_and_fallback(prompt)
+    analysis_text = await invoke_llm_with_retry_and_fallback(
+        prompt=prompt,
+        incident_id=state["incident_id"]
+    )
     state["root_cause_analysis"] = analysis_text
     
     latency_ms = (time.time() - start_time) * 1000
@@ -77,22 +79,27 @@ async def analyze_root_cause_node(state: IncidentState) -> IncidentState:
     return state
 
 async def verify_grounding_node(state: IncidentState) -> IncidentState:
-    """Node 4: Validate if the LLM's Root Cause Analysis is grounded in actual telemetry."""
+    """Node 4: Validate if the LLM's Root Cause Analysis is grounded in actual telemetry using Dynamic Extraction."""
     start_time = time.time()
     print("\n[Node 4] Verifying Evidence & Grounding Safeguard...")
     
-    analysis = state["root_cause_analysis"]
-    logs = state["raw_logs"]
+    analysis = state["root_cause_analysis"].lower()
+    logs = state["raw_logs"].lower()
     
-    # Check for evidence patterns across scenarios
-    has_evidence = any(kw in logs for kw in ["TimeoutError", "QueuePool", "OutOfMemoryError", "ReadTimeout", "500"])
-    has_analysis = "ROOT CAUSE:" in analysis
+    # Dynamic Tech Term Extraction (>4 characters)
+    extracted_terms = set(re.findall(r'\b[a-z0-9_\-]{4,}\b', analysis))
+    stop_words = {"root", "cause", "confidence", "recommended", "action", "this", "that", "with", "from", "service", "system", "error", "issue"}
+    tech_claims = [term for term in extracted_terms if term not in stop_words]
     
-    if has_evidence and has_analysis:
-        print("✅ Grounding Check Passed: Root cause maps directly to retrieved log stack trace.")
+    # Cross-reference terms against retrieved logs
+    matched_evidence = [term for term in tech_claims if term in logs]
+    match_ratio = len(matched_evidence) / len(tech_claims) if tech_claims else 0.0
+    
+    if match_ratio >= 0.2 or "normal" in logs:
+        print(f"✅ Grounding Check Passed: {len(matched_evidence)} matching technical terms found in log evidence.")
         state["grounding_passed"] = True
     else:
-        print("⚠️ Grounding Check Failed: Insufficient or ungrounded evidence detected.")
+        print("⚠️ Grounding Check Failed: Insufficient matching evidence found between LLM output and raw logs.")
         state["grounding_passed"] = False
         
     latency_ms = (time.time() - start_time) * 1000
@@ -101,27 +108,21 @@ async def verify_grounding_node(state: IncidentState) -> IncidentState:
     })
     return state
 
-async def test_nodes_async():
-    print("Testing Async Nodes with Resilient Router...")
-    initial_state = {
-        "incident_id": "INC-101",
-        "service_name": "order-service",
-        "raw_logs": "",
-        "raw_metrics": "",
-        "root_cause_analysis": "",
-        "confidence_score": 0.0,
-        "recommended_action": "",
-        "grounding_passed": False,
-        "human_approved": None
-    }
+async def fallback_conservative_analysis_node(state: IncidentState) -> IncidentState:
+    """Fallback Node: Triggered via Conditional Edge when Grounding Safeguard fails."""
+    start_time = time.time()
+    print("\n[Fallback Node] Executing Safe Conservative Triage (Grounding Failed)...")
     
-    s1 = await ingest_incident_node(initial_state)
-    s2 = await fetch_telemetry_node(s1)
-    s3 = await analyze_root_cause_node(s2)
-    s4 = await verify_grounding_node(s3)
+    state["root_cause_analysis"] = (
+        "ROOT CAUSE: Automated LLM diagnosis could not be conclusively verified against raw logs.\n"
+        "CONFIDENCE: 0.3\n"
+        "RECOMMENDED ACTION: Manual inspection required. Verify raw logs and system metrics directly."
+    )
+    state["confidence_score"] = 0.3
+    state["grounding_passed"] = False
     
-    print("\n--- FINAL RCA OUTPUT ---")
-    print(s4["root_cause_analysis"])
-
-if __name__ == "__main__":
-    asyncio.run(test_nodes_async())
+    latency_ms = (time.time() - start_time) * 1000
+    log_agent_step("fallback_conservative_analysis", state["incident_id"], latency_ms, {
+        "status": "fallback_applied"
+    })
+    return state

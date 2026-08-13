@@ -13,3 +13,4 @@ class IncidentState(TypedDict):
     recommended_action: str
     grounding_passed: bool        # NEW: Grounding Guardrail Flag
     human_approved: Optional[bool]
+    retry_count: int

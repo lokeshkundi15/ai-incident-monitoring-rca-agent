@@ -1,27 +1,22 @@
-# Use ultra-lightweight Python 3.11 image to respect 8GB RAM constraints
 FROM python:3.11-slim
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy complete repository code
 COPY . .
 
-# Expose Streamlit (8501) and FastAPI (8000) ports
-EXPOSE 8501 8000
+RUN mkdir -p data/simulated logs && chmod +x entrypoint.sh
+
+EXPOSE 8000 8501
 
 # Start Streamlit Dashboard by default
 CMD ["streamlit", "run", "ui/dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]

@@ -11,11 +11,19 @@ from agents.nodes import (
     ingest_incident_node,
     fetch_telemetry_node,
     analyze_root_cause_node,
-    verify_grounding_node
+    verify_grounding_node,
+    fallback_conservative_analysis_node
 )
 
+def route_after_grounding(state: IncidentState) -> str:
+    """Conditional Edge Router: Directs workflow based on Grounding Safeguard result."""
+    if state.get("grounding_passed", False):
+        return "approved"
+    else:
+        return "fallback"
+
 def build_async_workflow():
-    """Constructs the Async LangGraph orchestration graph."""
+    """Constructs the Async LangGraph orchestration graph with Dynamic Branching."""
     builder = StateGraph(IncidentState)
 
     # Add Nodes
@@ -23,13 +31,25 @@ def build_async_workflow():
     builder.add_node("fetch_telemetry", fetch_telemetry_node)
     builder.add_node("analyze_root_cause", analyze_root_cause_node)
     builder.add_node("verify_grounding", verify_grounding_node)
+    builder.add_node("fallback_analysis", fallback_conservative_analysis_node)
 
     # Add Sequential Edges
     builder.add_edge(START, "ingest_incident")
     builder.add_edge("ingest_incident", "fetch_telemetry")
     builder.add_edge("fetch_telemetry", "analyze_root_cause")
     builder.add_edge("analyze_root_cause", "verify_grounding")
-    builder.add_edge("verify_grounding", END)
+
+    # LangGraph Conditional Edge Integration (Dynamic Branching)
+    builder.add_conditional_edges(
+        "verify_grounding",
+        route_after_grounding,
+        {
+            "approved": END,
+            "fallback": "fallback_analysis"
+        }
+    )
+
+    builder.add_edge("fallback_analysis", END)
 
     return builder.compile()
 
@@ -52,7 +72,7 @@ async def run_pipeline_async(incident_id: str = "INC-101", service_name: str = "
     return final_output
 
 if __name__ == "__main__":
-    print("🚀 Running Async LangGraph Executable Pipeline...")
+    print("🚀 Running Async LangGraph Executable Pipeline with Conditional Routing...")
     output = asyncio.run(run_pipeline_async())
     print("\n" + "="*50)
     print("   COMPLETE ASYNC LANGGRAPH EXECUTION RESULT")

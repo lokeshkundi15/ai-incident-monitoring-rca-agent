@@ -14,12 +14,15 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents.graph import run_pipeline_async
 from app.idempotency import check_and_register_incident, save_completed_incident
 
-# API Key Security Setup
+# Strict Security Setup: Enforce environment variable without fallback string
 API_KEY_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
 def verify_api_key(api_key: str = Depends(api_key_header)):
-    expected_key = os.getenv("WEBHOOK_API_KEY", "rca_agent_sec_key_prod_2026")
+    expected_key = os.getenv("WEBHOOK_API_KEY")
+    if not expected_key:
+        raise RuntimeError("WEBHOOK_API_KEY environment variable is not set in .env")
+        
     if not api_key or api_key != expected_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -48,19 +51,12 @@ async def trigger_incident_webhook(
     payload: AlertPayload,
     authenticated: str = Depends(verify_api_key)
 ):
-    """
-    Authenticated & Idempotent Webhook endpoint. 
-    Prevents duplicate LLM analysis if incident was already processed.
-    """
     try:
         # 1. Idempotency Check
         cached_result = check_and_register_incident(payload.incident_id, payload.service_name)
         if cached_result:
-            print(f"⚡ Duplicate Alert Detected for {payload.incident_id}. Returning cached RCA without calling LLM.")
             return cached_result
 
-        print(f"🔒 Processing New Alert: Incident {payload.incident_id} on {payload.service_name}")
-        
         # 2. Execute Async LangGraph RCA Agent
         result = await run_pipeline_async(
             incident_id=payload.incident_id,
@@ -85,4 +81,4 @@ async def trigger_incident_webhook(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
