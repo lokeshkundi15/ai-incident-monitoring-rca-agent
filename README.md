@@ -1,3 +1,14 @@
+---
+title: AI Incident Monitoring & RCA Agent
+emoji: 🤖
+colorFrom: blue
+colorTo: indigo
+sdk: streamlit
+sdk_version: 1.32.0
+app_file: ui/dashboard.py
+pinned: false
+---
+
 # 🤖 Enterprise AI System Monitoring & Autonomous RCA Agent
 
 [![Live Demo](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Live%20Demo-blue)](https://huggingface.co/spaces/lokeshkundi15/ai-incident-monitoring-rca-agent)
