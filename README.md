@@ -11,8 +11,22 @@ pinned: false
 
 # 🤖 Enterprise AI System Monitoring & Autonomous RCA Agent
 
-[![Live Demo](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Live%20Demo-blue)](https://huggingface.co/spaces/lokeshkundi15/ai-incident-monitoring-rca-agent)
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://ai-incident-monitoring-rca-agent-b3sfykut3qzbxaoxy2vpud.streamlit.app/)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![Tests Passing](https://img.shields.io/badge/tests-6%2F6%20passed-brightgreen.svg)]()
 [![GitHub Repo](https://img.shields.io/badge/GitHub-Repository-black)](https://github.com/lokeshkundi15/ai-incident-monitoring-rca-agent)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+> An autonomous, production-grade Level-1 SRE Incident Triage Agent built with **LangGraph**, **FastMCP**, and **FastAPI**. It intercepts infrastructure alerts via authenticated webhooks, dynamically queries application stack traces and time-series metrics via FastMCP tools, performs grounded root-cause analysis, and provides human-in-the-loop remediation guardrails.
+>
+> **Illustrative Efficiency Baseline:** Automates traditional manual SRE triage steps (~30–40 minutes of manual log searching) into an automated, grounded RCA workflow executing in under **~3 seconds**.
+
+---
+
+## 🌐 Live Application & Demo
+* **Live Interactive Dashboard:** [Launch Streamlit App](https://ai-incident-monitoring-rca-agent-b3sfykut3qzbxaoxy2vpud.streamlit.app/)
+
+* **API Documentation:** Accessible via FastAPI Swagger UI at `/docs`
 
 > An autonomous, production-inspired Level-1 SRE Incident Triage Agent built with **LangGraph**, **FastMCP**, and **FastAPI**. It intercepts infrastructure alerts via authenticated webhooks, dynamically queries application stack traces and time-series metrics via FastMCP tools, performs grounded root-cause analysis, and provides human-in-the-loop remediation guardrails.
 >
