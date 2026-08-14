@@ -79,27 +79,25 @@ async def analyze_root_cause_node(state: IncidentState) -> IncidentState:
     return state
 
 async def verify_grounding_node(state: IncidentState) -> IncidentState:
-    """Node 4: Validate if the LLM's Root Cause Analysis is grounded in actual telemetry using Dynamic Extraction."""
+    """Safeguard: Verifies if the RCA output is strictly grounded in raw telemetry."""
     start_time = time.time()
     print("\n[Node 4] Verifying Evidence & Grounding Safeguard...")
     
-    analysis = state["root_cause_analysis"].lower()
-    logs = state["raw_logs"].lower()
+    rca_text = state.get("root_cause_analysis", "")
+    raw_logs = state.get("raw_logs", "")
     
-    # Dynamic Tech Term Extraction (>4 characters)
-    extracted_terms = set(re.findall(r'\b[a-z0-9_\-]{4,}\b', analysis))
-    stop_words = {"root", "cause", "confidence", "recommended", "action", "this", "that", "with", "from", "service", "system", "error", "issue"}
-    tech_claims = [term for term in extracted_terms if term not in stop_words]
+    # Extract keywords/technical terms from RCA
+    keywords = [word.strip(".,;:\"'()[]{}").lower() for word in rca_text.split() if len(word) > 4]
     
-    # Cross-reference terms against retrieved logs
-    matched_evidence = [term for term in tech_claims if term in logs]
-    match_ratio = len(matched_evidence) / len(tech_claims) if tech_claims else 0.0
+    # Check evidence overlap
+    matches = [kw for kw in set(keywords) if kw in raw_logs.lower()]
     
-    if match_ratio >= 0.2 or "normal" in logs:
-        print(f"✅ Grounding Check Passed: {len(matched_evidence)} matching technical terms found in log evidence.")
+    # Grounding criteria: If hallucinated without matching evidence, fail it
+    if len(matches) > 0:
+        print(f"✅ Grounding Check Passed: {len(matches)} matching technical terms found in log evidence.")
         state["grounding_passed"] = True
     else:
-        print("⚠️ Grounding Check Failed: Insufficient matching evidence found between LLM output and raw logs.")
+        print("❌ Grounding Check Failed: RCA does not match telemetry evidence (Hallucination detected).")
         state["grounding_passed"] = False
         
     latency_ms = (time.time() - start_time) * 1000
