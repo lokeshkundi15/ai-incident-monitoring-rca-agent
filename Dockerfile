@@ -1,22 +1,25 @@
-FROM python:3.11-slim
-
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+FROM python:3.12-slim
 
 WORKDIR /app
 
+# Install system build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Install python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy source code and scripts
 COPY . .
 
-RUN mkdir -p data/simulated logs && chmod +x entrypoint.sh
+# Set execution permission for entrypoint script
+RUN chmod +x /app/entrypoint.sh
 
-EXPOSE 8000 8501
+# Expose Streamlit (8501) and FastAPI (8000)
+EXPOSE 8501 8000
 
-# Start Streamlit Dashboard by default
-CMD ["streamlit", "run", "ui/dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Wire entrypoint script as main container startup command
+ENTRYPOINT ["/app/entrypoint.sh"]
