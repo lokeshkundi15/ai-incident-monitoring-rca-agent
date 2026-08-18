@@ -3,14 +3,19 @@ import os
 import time
 import asyncio
 import re
+from typing import Dict, Any
 
 # Add root directory to python path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agents.state import IncidentState
+from agents.verifier import IndependentRCAVerifier
 from mcp_server.tools import get_recent_logs, get_system_metrics
 from app.llm_router import invoke_llm_with_retry_and_fallback
 from app.logger import log_agent_step
+
+# Instantiate independent verification engine
+verifier = IndependentRCAVerifier()
 
 async def ingest_incident_node(state: IncidentState) -> IncidentState:
     """Node 1: Initialize incident info and start execution trace."""
@@ -36,8 +41,8 @@ async def fetch_telemetry_node(state: IncidentState) -> IncidentState:
     
     latency_ms = (time.time() - start_time) * 1000
     log_agent_step("fetch_telemetry", state["incident_id"], latency_ms, {
-        "logs_bytes": len(state["raw_logs"]),
-        "metrics_bytes": len(state["raw_metrics"])
+        "logs_bytes": len(str(state["raw_logs"])),
+        "metrics_bytes": len(str(state["raw_metrics"]))
     })
     return state
 
@@ -72,37 +77,50 @@ async def analyze_root_cause_node(state: IncidentState) -> IncidentState:
     )
     state["root_cause_analysis"] = analysis_text
     
+    # Parse confidence score from LLM response
+    conf_match = re.search(r"CONFIDENCE:\s*([0-1](?:\.\d+)?)", analysis_text, re.IGNORECASE)
+    state["confidence_score"] = float(conf_match.group(1)) if conf_match else 0.85
+
     latency_ms = (time.time() - start_time) * 1000
     log_agent_step("analyze_root_cause", state["incident_id"], latency_ms, {
-        "response_length": len(analysis_text)
+        "response_length": len(analysis_text),
+        "confidence": state["confidence_score"]
     })
     return state
 
 async def verify_grounding_node(state: IncidentState) -> IncidentState:
-    """Safeguard: Verifies if the RCA output is strictly grounded in raw telemetry."""
+    """Safeguard: Verifies if the RCA output is strictly grounded in raw telemetry using IndependentRCAVerifier."""
     start_time = time.time()
-    print("\n[Node 4] Verifying Evidence & Grounding Safeguard...")
+    print("\n[Node 4] Verifying Evidence & Grounding Safeguard via IndependentRCAVerifier...")
     
     rca_text = state.get("root_cause_analysis", "")
     raw_logs = state.get("raw_logs", "")
+    raw_metrics = state.get("raw_metrics", "")
     
-    # Extract keywords/technical terms from RCA
-    keywords = [word.strip(".,;:\"'()[]{}").lower() for word in rca_text.split() if len(word) > 4]
+    # Convert logs & metrics to structured list for verifier
+    logs_list = [raw_logs] if isinstance(raw_logs, str) else raw_logs
+    metrics_list = [raw_metrics] if isinstance(raw_metrics, str) else raw_metrics
+
+    # Execute Independent Verifier Check
+    verification_result = verifier.verify_hypothesis(
+        hypothesis=rca_text,
+        logs=logs_list,
+        metrics=metrics_list
+    )
     
-    # Check evidence overlap
-    matches = [kw for kw in set(keywords) if kw in raw_logs.lower()]
+    is_verified = verification_result.get("verified", False)
+    state["grounding_passed"] = is_verified
+    state["verification_details"] = verification_result
     
-    # Grounding criteria: If hallucinated without matching evidence, fail it
-    if len(matches) > 0:
-        print(f"✅ Grounding Check Passed: {len(matches)} matching technical terms found in log evidence.")
-        state["grounding_passed"] = True
+    if is_verified:
+        print("✅ Grounding Verification Passed: Hypothesis backed by telemetry evidence.")
     else:
-        print("❌ Grounding Check Failed: RCA does not match telemetry evidence (Hallucination detected).")
-        state["grounding_passed"] = False
+        print("❌ Grounding Verification Failed: Telemetry evidence does not support hypothesis.")
         
     latency_ms = (time.time() - start_time) * 1000
     log_agent_step("verify_grounding", state["incident_id"], latency_ms, {
-        "grounding_passed": state["grounding_passed"]
+        "grounding_passed": state["grounding_passed"],
+        "verification_details": verification_result
     })
     return state
 
