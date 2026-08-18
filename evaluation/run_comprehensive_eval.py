@@ -16,12 +16,20 @@ from evaluation.metrics import EvaluationMetricsCalculator
 
 DATASET_PATH = os.path.join(BASE_DIR, "evaluation", "dataset", "incidents.json")
 
-# Map 30-incident dataset scenarios directly to generator scenario functions
+# Map 30-incident dataset scenarios accurately to generator scenario functions
 SCENARIO_MAP = {
     "DB_POOL_EXHAUSTION": "Scenario A: DB Pool Exhaustion",
     "MEMORY_LEAK_OOM": "Scenario B: Memory Leak (Heap OOM)",
     "UPSTREAM_TIMEOUT": "Scenario C: Upstream API Read Timeout",
-    "CPU_THROTTLING": "Scenario A: DB Pool Exhaustion"
+    "CPU_THROTTLING": "Scenario D: CPU Throttling & Starvation"  # Fixed mapping
+}
+
+# Strict Category Keyword Definitions to verify RCA diagnosis ground truth
+EXPECTED_KEYWORDS = {
+    "DB_POOL_EXHAUSTION": ["connection pool", "hikaricp", "pool exhaustion", "active connections", "timeout", "queuepool"],
+    "MEMORY_LEAK_OOM": ["out of memory", "oom", "heap", "memory leak", "gc", "garbage collection"],
+    "UPSTREAM_TIMEOUT": ["upstream", "timeout", "payment-service", "gateway", "readtimeout", "socket"],
+    "CPU_THROTTLING": ["cpu throttled", "thread starvation", "cpu usage", "cfs quota", "worker timeout", "throttling"]
 }
 
 async def evaluate_full_dataset():
@@ -38,8 +46,8 @@ async def evaluate_full_dataset():
 
     for idx, inc in enumerate(incidents, start=1):
         inc_id = inc["incident_id"]
-        scenario_key = inc["scenario"]
-        service = inc["service"]
+        scenario_key = inc.get("scenario") or inc.get("failure_type", "DB_POOL_EXHAUSTION")
+        service = inc.get("service") or inc.get("service_name", "order-service")
         gen_scenario = SCENARIO_MAP.get(scenario_key, "Scenario A: DB Pool Exhaustion")
 
         print(f"[{idx:02d}/30] Executing Incident: {inc_id} ({scenario_key} on {service})...")
@@ -55,15 +63,23 @@ async def evaluate_full_dataset():
         # Map actual state dictionary keys from LangGraph state
         rca_text = agent_out.get("root_cause_analysis") or agent_out.get("root_cause") or ""
         confidence = float(agent_out.get("confidence_score") or agent_out.get("confidence") or 0.85)
-        grounding_passed = agent_out.get("grounding_passed", True)
+        grounding_passed = agent_out.get("grounding_passed", False)
 
         # 3. Independent Verification
         raw_logs = agent_out.get("raw_logs", "")
-        metrics = agent_out.get("metrics_data", [])
-        ver_res = verifier.verify_rca(rca_text, raw_logs, metrics)
+        metrics_data = agent_out.get("metrics_data", [])
+        
+        # Split logs into list if string
+        logs_list = raw_logs.split("\n") if isinstance(raw_logs, str) else raw_logs
+        ver_res = verifier.verify_hypothesis(rca_text, logs_list, metrics_data)
 
-        # Marked as correct if grounding passed and explanation is verified
-        is_correct = (grounding_passed or ver_res["verified"]) and len(rca_text) > 20
+        # 4. Strict AND-based correctness check:
+        # Must pass Grounding Node AND Verifier check AND contain expected diagnostic keywords
+        rca_lower = rca_text.lower()
+        expected_kws = EXPECTED_KEYWORDS.get(scenario_key, [])
+        keyword_matched = any(kw in rca_lower for kw in expected_kws)
+        
+        is_correct = bool(grounding_passed and ver_res.get("verified", False) and keyword_matched)
 
         results.append({
             "incident_id": inc_id,
@@ -71,7 +87,7 @@ async def evaluate_full_dataset():
             "service": service,
             "is_correct": is_correct,
             "confidence": confidence,
-            "evidence_score": ver_res["evidence_score"] if ver_res["evidence_score"] > 0 else 0.85,
+            "evidence_score": ver_res.get("evidence_score", 0.85),
             "latency_ms": latency_ms
         })
 
@@ -83,11 +99,11 @@ async def evaluate_full_dataset():
     ece_error = EvaluationMetricsCalculator.compute_calibration_error(results)
 
     print("\n" + "="*80)
-    print("🏆 10/10 RCA BENCHMARK EVALUATION SCORECARD (30 INCIDENTS)")
+    print("🏆 EMPIRICAL RCA BENCHMARK EVALUATION SCORECARD (30 INCIDENTS)")
     print("="*80)
     print(f"✅ Total Scenarios Evaluated  : {len(results)}")
-    print(f"🎯 Verified RCA Accuracy      : {accuracy:.1f}% ({correct_count}/{len(results)} Passed)")
-    print(f"📏 Expected Calibration Error : {ece_error:.4f} (Model Confidence Grounding)")
+    print(f"🎯 Strict Verified RCA Accuracy : {accuracy:.1f}% ({correct_count}/{len(results)} Passed)")
+    print(f"📏 Expected Calibration Error : {ece_error:.4f} (Calibrated Model Confidence)")
     print(f"⚡ Mean Execution Latency    : {avg_latency:.1f} ms / incident")
     print(f"⏱️ Total Benchmark Runtime   : {total_latency:.2f} seconds")
     print("="*80)

@@ -78,16 +78,38 @@ def generate_scenario_c():
     ]
     return logs, metrics
 
+def generate_scenario_d():
+    """Scenario D: CPU Throttling & CFS Quota Starvation"""
+    logs = [
+        "2026-08-03 14:00:00 [INFO] worker-service: Worker thread pool processing batch requests",
+        "2026-08-03 14:01:00 [WARN] worker-service: CFS scheduler quota reached. CPU throttled on container",
+        "2026-08-03 14:02:00 [ERROR] worker-service: Worker timeout: thread starvation detected during compute task",
+        "2026-08-03 14:03:00 [CRITICAL] worker-service: Event loop lag exceeded threshold (8500ms). System unresponsive."
+    ]
+    metrics = [
+        ("2026-08-03 14:00:00", "worker-service", 55.0, 42.0, 2, 20, 0.0, 150.0),
+        ("2026-08-03 14:01:00", "worker-service", 85.0, 44.0, 3, 20, 5.0, 1200.0),
+        ("2026-08-03 14:02:00", "worker-service", 98.5, 46.0, 4, 20, 35.0, 6500.0),
+        ("2026-08-03 14:03:00", "worker-service", 99.8, 47.0, 4, 20, 75.0, 9200.0)
+    ]
+    return logs, metrics
+
 def build_telemetry(scenario="A"):
     """Entry point to populate logs and DB metrics based on scenario selection."""
     create_database_schema()
     
-    if scenario == "B":
+    # Normalize scenario string
+    sc_upper = str(scenario).upper()
+    
+    if "B" in sc_upper or "MEMORY" in sc_upper:
         logs, metrics = generate_scenario_b()
         print("🎭 Generating Scenario B: Memory Leak & Heap OOM...")
-    elif scenario == "C":
+    elif "C" in sc_upper or "TIMEOUT" in sc_upper or "UPSTREAM" in sc_upper:
         logs, metrics = generate_scenario_c()
         print("🎭 Generating Scenario C: Upstream API Timeout Cascade...")
+    elif "D" in sc_upper or "CPU" in sc_upper or "THROTTLING" in sc_upper:
+        logs, metrics = generate_scenario_d()
+        print("🎭 Generating Scenario D: CPU Throttling / Thread Starvation...")
     else:
         logs, metrics = generate_scenario_a()
         print("🎭 Generating Scenario A: DB Pool Exhaustion...")
