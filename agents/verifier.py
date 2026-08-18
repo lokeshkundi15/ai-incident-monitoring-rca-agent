@@ -10,8 +10,12 @@ class IndependentRCAVerifier:
     SIGNATURES = {
         "DB_POOL_EXHAUSTION": [
             r"QueuePool",
+            r"HikariPool",
+            r"HikariCP",
+            r"Connection is not available",
             r"TimeoutError",
             r"connection timed out",
+            r"timed out",
             r"DB pool",
             r"waiting for DB pool release",
             r"Active worker threads stalled"
@@ -39,7 +43,7 @@ class IndependentRCAVerifier:
         ]
     }
 
-    def verify_rca(self, rca_text: str, logs: Union[str, List[str]], metrics: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def verify_rca(self, rca_text: str, logs: Union[str, List[str]], metrics: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Validates whether the RCA diagnosis hypothesis is supported by logs & metric thresholds across the window.
         """
@@ -56,7 +60,7 @@ class IndependentRCAVerifier:
                     matched_signatures.append(p)
                     detected_scenario = scenario
 
-        # 2. Check Metric Threshold Consistency across all metric rows
+        # 2. Check Metric Threshold Consistency across all metric rows (if metrics provided)
         metric_consistent = True
         if metrics and isinstance(metrics, list) and len(metrics) > 0:
             max_http_5xx = max([float(m.get("http_5xx_rate_pct", 0.0)) for m in metrics])
