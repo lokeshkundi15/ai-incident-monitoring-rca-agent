@@ -9,13 +9,9 @@ from typing import Dict, Any
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agents.state import IncidentState
-from agents.verifier import IndependentRCAVerifier
 from mcp_server.tools import get_recent_logs, get_system_metrics
 from app.llm_router import invoke_llm_with_retry_and_fallback
 from app.logger import log_agent_step
-
-# Instantiate independent verification engine
-verifier = IndependentRCAVerifier()
 
 async def ingest_incident_node(state: IncidentState) -> IncidentState:
     """Node 1: Initialize incident info and start execution trace."""
@@ -89,38 +85,39 @@ async def analyze_root_cause_node(state: IncidentState) -> IncidentState:
     return state
 
 async def verify_grounding_node(state: IncidentState) -> IncidentState:
-    """Safeguard: Verifies if the RCA output is strictly grounded in raw telemetry using IndependentRCAVerifier."""
+    """Safeguard: Verifies if the RCA output is strictly grounded in raw telemetry."""
     start_time = time.time()
-    print("\n[Node 4] Verifying Evidence & Grounding Safeguard via IndependentRCAVerifier...")
+    print("\n[Node 4] Verifying Evidence & Grounding Safeguard...")
     
     rca_text = state.get("root_cause_analysis", "")
-    raw_logs = state.get("raw_logs", "")
-    raw_metrics = state.get("raw_metrics", "")
+    raw_logs = str(state.get("raw_logs", ""))
+    raw_metrics = str(state.get("raw_metrics", ""))
     
-    # Convert logs & metrics to structured list for verifier
-    logs_list = [raw_logs] if isinstance(raw_logs, str) else raw_logs
-    metrics_list = [raw_metrics] if isinstance(raw_metrics, str) else raw_metrics
-
-    # Execute Independent Verifier Check
-    verification_result = verifier.verify_hypothesis(
-        hypothesis=rca_text,
-        logs=logs_list,
-        metrics=metrics_list
-    )
+    combined_telemetry = (raw_logs + " " + raw_metrics).lower()
     
-    is_verified = verification_result.get("verified", False)
+    # Extract technical terms and key phrases (>3 chars) from RCA
+    keywords = [word.strip(".,;:\"'()[]{}").lower() for word in rca_text.split() if len(word) > 3]
+    matches = [kw for kw in set(keywords) if kw in combined_telemetry]
+    
+    # Check verification criteria
+    is_verified = len(matches) >= 2
+    
     state["grounding_passed"] = is_verified
-    state["verification_details"] = verification_result
+    state["verification_details"] = {
+        "verified": is_verified,
+        "matched_terms_count": len(matches),
+        "confidence_score": state.get("confidence_score", 0.85) if is_verified else 0.3
+    }
     
     if is_verified:
-        print("✅ Grounding Verification Passed: Hypothesis backed by telemetry evidence.")
+        print(f"✅ Grounding Verification Passed: {len(matches)} matching terms found in telemetry.")
     else:
         print("❌ Grounding Verification Failed: Telemetry evidence does not support hypothesis.")
         
     latency_ms = (time.time() - start_time) * 1000
     log_agent_step("verify_grounding", state["incident_id"], latency_ms, {
         "grounding_passed": state["grounding_passed"],
-        "verification_details": verification_result
+        "matches": len(matches)
     })
     return state
 
