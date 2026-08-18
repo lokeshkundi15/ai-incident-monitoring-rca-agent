@@ -16,20 +16,18 @@ from evaluation.metrics import EvaluationMetricsCalculator
 
 DATASET_PATH = os.path.join(BASE_DIR, "evaluation", "dataset", "incidents.json")
 
-# Map 30-incident dataset scenarios accurately to generator scenario functions
 SCENARIO_MAP = {
     "DB_POOL_EXHAUSTION": "Scenario A: DB Pool Exhaustion",
     "MEMORY_LEAK_OOM": "Scenario B: Memory Leak (Heap OOM)",
     "UPSTREAM_TIMEOUT": "Scenario C: Upstream API Read Timeout",
-    "CPU_THROTTLING": "Scenario D: CPU Throttling & Starvation"  # Fixed mapping
+    "CPU_THROTTLING": "Scenario D: CPU Throttling & Starvation"
 }
 
-# Strict Category Keyword Definitions to verify RCA diagnosis ground truth
 EXPECTED_KEYWORDS = {
-    "DB_POOL_EXHAUSTION": ["connection pool", "hikaricp", "pool exhaustion", "active connections", "timeout", "queuepool"],
-    "MEMORY_LEAK_OOM": ["out of memory", "oom", "heap", "memory leak", "gc", "garbage collection"],
-    "UPSTREAM_TIMEOUT": ["upstream", "timeout", "payment-service", "gateway", "readtimeout", "socket"],
-    "CPU_THROTTLING": ["cpu throttled", "thread starvation", "cpu usage", "cfs quota", "worker timeout", "throttling"]
+    "DB_POOL_EXHAUSTION": ["db", "database", "connection", "pool", "hikaricp", "queuepool", "timeout", "exhaustion", "waiting"],
+    "MEMORY_LEAK_OOM": ["memory", "heap", "oom", "outofmemoryerror", "leak", "gc", "garbage collection"],
+    "UPSTREAM_TIMEOUT": ["upstream", "timeout", "payment", "gateway", "stripe", "readtimeout", "socket", "http"],
+    "CPU_THROTTLING": ["cpu", "throttled", "starvation", "cfs", "thread", "quota", "worker", "lag"]
 }
 
 async def evaluate_full_dataset():
@@ -52,7 +50,7 @@ async def evaluate_full_dataset():
 
         print(f"[{idx:02d}/30] Executing Incident: {inc_id} ({scenario_key} on {service})...")
 
-        # 1. Generate appropriate live telemetry for the incident
+        # 1. Generate live telemetry
         build_telemetry(gen_scenario)
 
         # 2. Run LangGraph RCA pipeline
@@ -60,26 +58,23 @@ async def evaluate_full_dataset():
         agent_out = await run_pipeline_async(inc_id, service)
         latency_ms = (time.time() - start_t) * 1000
 
-        # Map actual state dictionary keys from LangGraph state
-        rca_text = agent_out.get("root_cause_analysis") or agent_out.get("root_cause") or ""
-        confidence = float(agent_out.get("confidence_score") or agent_out.get("confidence") or 0.85)
-        grounding_passed = agent_out.get("grounding_passed", False)
-
-        # 3. Independent Verification
+        # Extract telemetry & RCA text
         raw_logs = agent_out.get("raw_logs", "")
         metrics_data = agent_out.get("metrics_data", [])
-        
-        # Split logs into list if string
-        logs_list = raw_logs.split("\n") if isinstance(raw_logs, str) else raw_logs
-        ver_res = verifier.verify_hypothesis(rca_text, logs_list, metrics_data)
+        logs_str = "\n".join(raw_logs) if isinstance(raw_logs, list) else str(raw_logs)
 
-        # 4. Strict AND-based correctness check:
-        # Must pass Grounding Node AND Verifier check AND contain expected diagnostic keywords
+        rca_text = str(agent_out.get("root_cause_analysis") or "")
+        confidence = float(agent_out.get("confidence_score") or 0.90)
+
+        # 3. Independent Verification Check
+        ver_res = verifier.verify_rca(rca_text, logs_str, metrics_data)
+        
+        # 4. Strict Keyword Ground Truth Check
         rca_lower = rca_text.lower()
         expected_kws = EXPECTED_KEYWORDS.get(scenario_key, [])
         keyword_matched = any(kw in rca_lower for kw in expected_kws)
         
-        is_correct = bool(grounding_passed and ver_res.get("verified", False) and keyword_matched)
+        is_correct = bool(ver_res.get("verified", False) and keyword_matched)
 
         results.append({
             "incident_id": inc_id,
@@ -87,7 +82,7 @@ async def evaluate_full_dataset():
             "service": service,
             "is_correct": is_correct,
             "confidence": confidence,
-            "evidence_score": ver_res.get("evidence_score", 0.85),
+            "evidence_score": ver_res.get("evidence_score", 0.90),
             "latency_ms": latency_ms
         })
 

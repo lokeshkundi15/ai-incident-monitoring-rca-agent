@@ -98,16 +98,18 @@ def build_telemetry(scenario="A"):
     """Entry point to populate logs and DB metrics based on scenario selection."""
     create_database_schema()
     
-    # Normalize scenario string
-    sc_upper = str(scenario).upper()
-    
-    if "B" in sc_upper or "MEMORY" in sc_upper:
+    # Exact scenario code matching
+    sc = str(scenario).strip()
+    if sc.startswith("Scenario A") or sc == "A" or sc == "DB_POOL_EXHAUSTION":
+        logs, metrics = generate_scenario_a()
+        print("🎭 Generating Scenario A: DB Pool Exhaustion...")
+    elif sc.startswith("Scenario B") or sc == "B" or sc == "MEMORY_LEAK_OOM":
         logs, metrics = generate_scenario_b()
         print("🎭 Generating Scenario B: Memory Leak & Heap OOM...")
-    elif "C" in sc_upper or "TIMEOUT" in sc_upper or "UPSTREAM" in sc_upper:
+    elif sc.startswith("Scenario C") or sc == "C" or sc == "UPSTREAM_TIMEOUT":
         logs, metrics = generate_scenario_c()
         print("🎭 Generating Scenario C: Upstream API Timeout Cascade...")
-    elif "D" in sc_upper or "CPU" in sc_upper or "THROTTLING" in sc_upper:
+    elif sc.startswith("Scenario D") or sc == "D" or sc == "CPU_THROTTLING":
         logs, metrics = generate_scenario_d()
         print("🎭 Generating Scenario D: CPU Throttling / Thread Starvation...")
     else:
@@ -128,5 +130,4 @@ def build_telemetry(scenario="A"):
     print(f"✅ Database Telemetry Metrics updated at: {DB_FILE_PATH}")
 
 if __name__ == "__main__":
-    # Test generating Scenario A by default
     build_telemetry("A")

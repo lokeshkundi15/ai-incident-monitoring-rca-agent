@@ -3,6 +3,7 @@ import os
 import time
 import asyncio
 import re
+import sqlite3
 from typing import Dict, Any, List
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -13,8 +14,9 @@ from mcp_server.tools import get_recent_logs, get_system_metrics
 from app.llm_router import invoke_llm_with_retry_and_fallback
 from app.logger import log_agent_step
 
-# Instantiate shared verifier engine
+# Shared verifier instance
 verifier = IndependentRCAVerifier()
+DB_FILE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "simulated", "system_telemetry.db")
 
 async def ingest_incident_node(state: IncidentState) -> IncidentState:
     start_time = time.time()
@@ -31,21 +33,27 @@ async def fetch_telemetry_node(state: IncidentState) -> IncidentState:
     start_time = time.time()
     
     logs_output = await get_recent_logs(limit=20)
-    metrics_output = await get_system_metrics()
+    metrics_str = await get_system_metrics()
     
-    # Store both formatted strings and structured rows
-    state["raw_logs"] = logs_output
-    if isinstance(metrics_output, dict) and "rows" in metrics_output:
-        state["raw_metrics"] = str(metrics_output.get("formatted_text", metrics_output))
-        state["metrics_data"] = metrics_output.get("rows", [])
-    elif isinstance(metrics_output, list):
-        state["raw_metrics"] = str(metrics_output)
-        state["metrics_data"] = metrics_output
-    else:
-        state["raw_metrics"] = str(metrics_output)
-        state["metrics_data"] = []
+    # Store logs as string
+    state["raw_logs"] = "\n".join(logs_output) if isinstance(logs_output, list) else str(logs_output)
+    state["raw_metrics"] = str(metrics_str)
     
-    # Verification debug statement
+    # Query structured metric rows directly from SQLite for verifier threshold rules
+    structured_metrics: List[Dict[str, Any]] = []
+    if os.path.exists(DB_FILE_PATH):
+        try:
+            conn = sqlite3.connect(DB_FILE_PATH)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM metrics ORDER BY timestamp ASC")
+            rows = cursor.fetchall()
+            structured_metrics = [dict(row) for row in rows]
+            conn.close()
+        except Exception:
+            structured_metrics = []
+            
+    state["metrics_data"] = structured_metrics
     print(f"🔍 [Telemetry Ingest] Fetched {len(state['metrics_data'])} structured metric points for validation.")
     
     latency_ms = (time.time() - start_time) * 1000
@@ -95,20 +103,19 @@ async def analyze_root_cause_node(state: IncidentState) -> IncidentState:
     return state
 
 async def verify_grounding_node(state: IncidentState) -> IncidentState:
-    """Safeguard: Runs the shared IndependentRCAVerifier in the live execution graph."""
+    """Safeguard: Runs the shared IndependentRCAVerifier ensuring logs are string."""
     start_time = time.time()
     
-    rca_text = state.get("root_cause_analysis", "")
+    rca_text = str(state.get("root_cause_analysis", ""))
     raw_logs = state.get("raw_logs", "")
     metrics_data = state.get("metrics_data", [])
     
-    # Format logs into list if string
-    logs_list = raw_logs.split("\n") if isinstance(raw_logs, str) else raw_logs
+    # Ensure logs is strictly a string for regex matching
+    logs_str = "\n".join(raw_logs) if isinstance(raw_logs, list) else str(raw_logs)
     
-    # Execute verification check against log signatures & metric rules
-    verification_res = verifier.verify_hypothesis(
-        hypothesis=rca_text,
-        logs=logs_list,
+    verification_res = verifier.verify_rca(
+        rca_text=rca_text,
+        logs=logs_str,
         metrics=metrics_data
     )
     

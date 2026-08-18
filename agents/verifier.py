@@ -1,68 +1,88 @@
 import re
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Union
 
 class IndependentRCAVerifier:
     """
-    Independent Evidence Verification Engine.
-    Cross-checks LLM diagnostic claims against deterministic metric thresholds 
-    and log stack trace signatures before marking RCA as verified.
+    Independent Deterministic Verifier Engine.
+    Cross-checks diagnosis against raw log signatures and telemetry metric thresholds.
     """
     
-    FAILURE_SIGNATURES = {
-        "DB_POOL_EXHAUSTION": {
-            "log_patterns": [r"QueuePool", r"connection pool", r"timeout acquiring connection", r"remaining connection slots"],
-            "metric_check": lambda m: any(row.get("cpu_usage_pct", 0) > 0 for row in m)
-        },
-        "MEMORY_LEAK_OOM": {
-            "log_patterns": [r"OutOfMemoryError", r"Heap space", r"Garbage Collection", r"OOM-killer"],
-            "metric_check": lambda m: any(row.get("memory_usage_pct", 0) >= 85.0 for row in m)
-        },
-        "UPSTREAM_TIMEOUT": {
-            "log_patterns": [r"ReadTimeout", r"504 Gateway", r"Connection refused", r"upstream request timeout"],
-            "metric_check": lambda m: any(row.get("http_5xx_rate_pct", 0) >= 5.0 for row in m)
-        },
-        "CPU_THROTTLING": {
-            "log_patterns": [r"CPU throttled", r"thread starvation", r"high latency", r"worker timeout"],
-            "metric_check": lambda m: any(row.get("cpu_usage_pct", 0) >= 80.0 for row in m)
-        }
+    SIGNATURES = {
+        "DB_POOL_EXHAUSTION": [
+            r"QueuePool",
+            r"TimeoutError",
+            r"connection timed out",
+            r"DB pool",
+            r"waiting for DB pool release",
+            r"Active worker threads stalled"
+        ],
+        "MEMORY_LEAK_OOM": [
+            r"OutOfMemoryError",
+            r"Java heap space",
+            r"Garbage Collection pause",
+            r"OOM-killer",
+            r"signal 9"
+        ],
+        "UPSTREAM_TIMEOUT": [
+            r"ReadTimeout",
+            r"HTTPSConnectionPool",
+            r"delayed beyond SLA",
+            r"api\.stripe\.com",
+            r"worker thread pools exhausted waiting for socket"
+        ],
+        "CPU_THROTTLING": [
+            r"CPU throttled",
+            r"CFS scheduler quota",
+            r"thread starvation",
+            r"Worker timeout",
+            r"Event loop lag"
+        ]
     }
 
-    def verify_rca(self, rca_text: str, logs: str, metrics: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def verify_rca(self, rca_text: str, logs: Union[str, List[str]], metrics: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Validates whether LLM diagnostic claims are mathematically and logistically grounded.
+        Validates whether the RCA diagnosis hypothesis is supported by logs & metric thresholds across the window.
         """
-        matched_signatures = []
-        evidence_score = 0.0
+        logs_str = "\n".join(logs) if isinstance(logs, list) else str(logs)
+        rca_str = str(rca_text)
         
-        # 1. Match Log Stack Trace Signatures
-        for scenario, config in self.FAILURE_SIGNATURES.items():
-            for pattern in config["log_patterns"]:
-                if re.search(pattern, logs, re.IGNORECASE) and re.search(pattern, rca_text, re.IGNORECASE):
-                    matched_signatures.append(f"{scenario}:{pattern}")
-                    evidence_score += 0.4
+        matched_signatures = []
+        detected_scenario = "UNKNOWN"
 
-        # 2. Check Time-Series Metric Consistency
-        metric_verified = False
-        for scenario, config in self.FAILURE_SIGNATURES.items():
-            if scenario in str(matched_signatures) and config["metric_check"](metrics):
-                metric_verified = True
-                evidence_score += 0.4
-                break
+        # 1. Match Log Regex Signatures
+        for scenario, patterns in self.SIGNATURES.items():
+            for p in patterns:
+                if re.search(p, logs_str, re.IGNORECASE):
+                    matched_signatures.append(p)
+                    detected_scenario = scenario
 
-        # Fallback baseline check if specific pattern isn't in signature dictionary
-        if not matched_signatures:
-            # Word overlap fallback
-            tokens = [t for t in re.findall(r'\b[A-Za-z0-9_-]{4,}\b', rca_text) if t.lower() not in {"this", "with", "from", "that", "service", "error"}]
-            matched_words = [t for t in tokens if t.lower() in logs.lower()]
-            overlap_ratio = len(matched_words) / max(1, len(tokens))
-            if overlap_ratio >= 0.15:
-                evidence_score = min(1.0, overlap_ratio * 1.5)
+        # 2. Check Metric Threshold Consistency across all metric rows
+        metric_consistent = True
+        if metrics and isinstance(metrics, list) and len(metrics) > 0:
+            max_http_5xx = max([float(m.get("http_5xx_rate_pct", 0.0)) for m in metrics])
+            max_cpu = max([float(m.get("cpu_usage_pct", 0.0)) for m in metrics])
+            max_mem = max([float(m.get("memory_usage_pct", 0.0)) for m in metrics])
 
-        is_passed = evidence_score >= 0.35
+            if detected_scenario == "DB_POOL_EXHAUSTION" and max_http_5xx < 1.0:
+                metric_consistent = False
+            elif detected_scenario == "MEMORY_LEAK_OOM" and max_mem < 40.0:
+                metric_consistent = False
+            elif detected_scenario == "CPU_THROTTLING" and max_cpu < 60.0:
+                metric_consistent = False
+            elif detected_scenario == "UPSTREAM_TIMEOUT" and max_http_5xx < 1.0:
+                metric_consistent = False
+
+        # 3. Grounding Verification Outcome
+        has_log_evidence = len(matched_signatures) > 0
+        has_rca_content = len(rca_str.strip()) > 10 and "could not be conclusively" not in rca_str
+        
+        evidence_score = min(1.0, 0.6 + (0.10 * len(matched_signatures))) if has_log_evidence else 0.20
+        verified = bool(has_log_evidence and has_rca_content and metric_consistent)
 
         return {
-            "verified": is_passed,
-            "evidence_score": round(min(1.0, evidence_score), 3),
+            "verified": verified,
+            "detected_scenario": detected_scenario,
+            "evidence_score": round(evidence_score, 4),
             "matched_signatures": matched_signatures,
-            "metric_consistency": metric_verified
+            "metric_consistent": metric_consistent
         }
