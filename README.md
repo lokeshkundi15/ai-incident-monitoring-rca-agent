@@ -24,6 +24,9 @@ pinned: false
 - **Live Interactive Dashboard:** [Launch Streamlit App](https://ai-incident-monitoring-rca-agent-b3sfykut3qzbxaoxy2vpud.streamlit.app/)
 - **API Documentation:** Accessible via FastAPI Swagger UI at `/docs`
 
+## 🎬 Live Interactive Demo
+![Application Demo](assets/project_demo.gif)
+
 ---
 
 ## 1. Project Title
